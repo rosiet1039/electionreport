@@ -1,0 +1,738 @@
+---
+title: "Forecasting the 2029 Canadian Federal Election Using Poststratification"
+author: "Rosie Topp"
+date: November 13, 2025
+subtitle: STA304 - Assignment 2
+format: pdf
+editor: visual
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(openintro)
+library(tidyverse)
+library(ggplot2)
+```
+
+# 1 Introduction
+
+All over the world, political climates are growing more tense every day. Here in Canada we are fortunate enough to have a democracy, and it is very useful to be able to collect and analyze election data in order to understand how our country might evolve.
+
+Statistics Canada conducts a census every 5 years, collecting demographic information on the entire Canadian population (Statistics Canada, 2021). Additionally, the Consortium on Electoral Democracy performed the 2021 Canadian Election Study (CES), which consisted of two surveys: the Campaign Period Survey and the Post-Election Survey, which similarly collected demographic and federal voting information (Stephenson et al., 2021). This report will analyze the 2021 Canadian Census as well as the combined survey information contained in the Canadian Election Study.
+
+This analysis will explore the question: *which party will win the 2029 federal election?* Using data from the above sources, we will attempt to predict the outcome of the upcoming Canadian election.
+
+# 2 Data
+
+This report will be analyzing data from the 2021 Canadian Census (Statistics Canada, 2021), as well as the 2021 Canadian Election Study (CES) (Stephenson et al., 2021). Every 5 years, Statistics Canada conducts a country wide census via a questionnaire. Due to the Covid-19 pandemic, efforts were made to reduce the number of in-person visits, and most households completed the census on the phone or online, rather than door-to-door interviews (Jones, 2021). The census contains various demographic questions including race, income, gender, and more. The CES was conducted by the Consortium on Electoral Democracy. It consisted of two surveys - participants were asked to fill out a questionnaire during the campaign period for the 2021 federal election, and they were contacted for a follow-up post-election. The sample was stratified by region, and efforts were made to keep gender and age ratios balanced. The surveys were completed online.
+
+```{r, include = FALSE}
+#CENSUS DATA
+
+#load in data
+census_data <- read_csv("canada_census2021.csv")
+head(census_data)
+
+#Remove unwanted columns from data & change labels
+census_data <- census_data %>% 
+  mutate(age=agegrp,
+         prov=pr,
+         race=dpgrsum,
+         income=cfinc) %>%
+  select(age, gender, prov, race, income)
+
+#remove respondents under the age of 18
+#values 7 to 21 in the Census data refer to those 18 and older
+census_data <- census_data %>%
+  filter(age>=7)
+
+#replace missing values with median or delete
+#88 refers to "Not Available" in the census data, note the census data does not contain NA
+
+#age (replace with median)
+no_missing_age <- census_data[census_data$age != 88, ]
+median_age <- median(no_missing_age$age)
+census_data$age <- ifelse(census_data$age == 88,
+                       median_age,
+                       census_data$age)
+
+#gender has no missing data
+
+#province has no missing data
+
+#income (replace with median)
+no_missing_income <- census_data[census_data$income != 88, ]
+median_income <- median(no_missing_income$income)
+census_data$income <- ifelse(census_data$income == 88,
+                       median_income,
+                       census_data$income)
+
+#race (delete)
+census_data <- census_data %>%
+  filter(race != 88)
+
+#categorize and label
+#age
+census_data$age <- ifelse(census_data$age == 7,
+                       "18-19",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 8 | census_data$age == 9,
+                       "20-29",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 10 | census_data$age == 11,
+                       "30-39",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 12 | census_data$age == 13,
+                       "40-49",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 14 | census_data$age == 15,
+                       "50-59",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 16 | census_data$age == 17,
+                       "60-69",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 18 | census_data$age == 19,
+                       "70-79",
+                       census_data$age)
+census_data$age <- ifelse(census_data$age == 20 | census_data$age == 21,
+                       "80+",
+                       census_data$age)
+
+#gender
+census_data$gender <- ifelse(census_data$gender == 2,
+                       "Male",
+                       "Non-Male")
+
+#province
+census_data$prov <- ifelse(census_data$prov == 48,
+                       "AB",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 59,
+                       "BC",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 46,
+                       "MB",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 13,
+                       "NB",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 10,
+                       "NL",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 70,
+                       "NT, NU, YT",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 12,
+                       "NS",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 35,
+                       "ON",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 11,
+                       "PE",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 24,
+                       "QC",
+                       census_data$prov)
+census_data$prov <- ifelse(census_data$prov == 47,
+                       "SK",
+                       census_data$prov)
+
+#race
+census_data$race <- ifelse(census_data$race == 1,
+                       "White",
+                       "Non-White")
+
+#income
+census_data$income <- ifelse(census_data$income == 1 | census_data$income == 2 | census_data$income == 3 | census_data$income == 4,
+                       "<10",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 5 | census_data$income == 6 | census_data$income == 7 | census_data$income == 8,
+                       "10-20",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 9 | census_data$income == 10 | census_data$income == 11 | census_data$income == 12,
+                       "20-40",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 13 | census_data$income == 14 | census_data$income == 15 | census_data$income == 16,
+                       "40-60",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 17 | census_data$income == 18 | census_data$income == 19 | census_data$income == 20,
+                       "60-80",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 21 | census_data$income == 22 | census_data$income == 23 | census_data$income == 24,
+                       "80-100",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 25 | census_data$income == 26 | census_data$income == 27 | census_data$income == 28,
+                       "100-140",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 29 | census_data$income == 30 | census_data$income == 31 | census_data$income == 32,
+                       "140-250",
+                       census_data$income)
+census_data$income <- ifelse(census_data$income == 33,
+                       "250+",
+                       census_data$income)
+desired_order <- c("<10", "10-20", "20-40", "40-60", "60-80", "80-100", "100-140", "140-250", "250+")
+census_data$income <- factor(census_data$income, levels = desired_order)
+```
+
+***Census Data Cleaning***
+
+The first step in cleaning the census data was to remove all the columns that were irrelevent to this analysis: only the columns agegrp (age), pr (province), dpgrsum (race), cfinc (income) and gender were kept (note: I will reference these columns/variables by the bracketed names, still referring to gender as gender, in order to maintain clarity).
+
+I then removed all rows corresponding to participants below the age of 18 as they cannot vote and would not be relevant to the research question.
+
+Next I dealt with the missing values - in this data set, 88 and NA both indicate missing data. Gender and province had no missing data. For age and income I replaced these values with their respective medians. I then deleted all rows with missing race values.
+
+Lastly I sorted all the data in each column into bins/categories and relabeled them for the purposes of post-stratification. Below are some tables describing these categories.
+
+***Survey Data Cleaning***
+
+First I removed all columns that were excluded from my analysis, keeping only cps21_yob (age), cps21_genderid (gender), cps21_province (province), cps21_income_number (income), cps21_votechoice (vote choice), and all the columns related to ethnicity/race: cps21_vismin_1, cps21_vismin_2, cps21_vismin_3, cps21_vismin_4, cps21_vismin_5, cps21_vismin_6, cps21_vismin_7, cps21_vismin_8, cps21_vismin_9, cps21_vismin_10, cps21_vismin_11, cps21_vismin_12 (race) (I will again be referring to these variables by the bracketed names).
+
+To deal with missing data (note that missing data is represented by -99 or NA in this data set) I replaced all missing age, income, and province values with their respective medians. I then removed all rows where vote was missing or 7, as 7 represents "Don't know/Prefer not to answer". For the race/ethnicity variables, note that cps21_vismin\_ 1 through 10 indicate a specific racial or ethnic identity, while 11 and 12 indicate "None of the above" and "Prefer not to answer" respectively. I decided to remove all respondents that did not check off any of the identities in columns cps21_vismin 1 through 10, and all respondents that checked off cps21_vismin_12 (note that a value of 1 indicates the respondent checked off the box corresponding to that variable, while -99 or NA indicates they did not).
+
+I again sorted and relabeled the data in order to match the census data for the purposes of post-stratification, which is further detailed below. After this was performed, cps21_vismin 1 through 8, 10, 11, and 12 were removed (note that cps21_vismin_9 was modified to form the race column).
+
+***Categories***
+
+In both data sets, I categorized each column into identical bins. Please see the Appendix for Tables 1a, 1b, 2c, which map these labels to the corresponding original values. The chosen categories are as follows:
+
+**Age** - "18-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"
+
+Note: Since the survey values for age correspond to year of birth, respondent age was rounded down i.e. everyone was assumed to be born on January 1st.
+
+**Income** - "\<10", "10-20", "20-40", "40-60", "60-80", "80-100", "100-140", "140-250", "250+"
+
+Note: Income is in thousands, upper intervals are excluded.
+
+**Province** - "AB", "BC", "MB", "NB", "NL", "NT, NU, YT", "NS", "ON", "PE", "QC", "SK"
+
+**Gender** - "Male", "Non-Male"
+
+Note: While the census only contained male and female options, the survey contained other gender categories. All survey participants that did not answer as male were assumed to be non-male.
+
+**Race** - "White", "Non-White"
+
+Note: Respondents that self reported as white and nothing else were placed in the White category. Those who reported being of another race/ethnicity or multiracial were placed in the Non-White category. In the survey data, the cps21_vismin\_ variables correspond to whether or not the participant identifies as the corresponding race (please see CES documentation), with 1 meaning they are said race and -99 or NA meaning they are not. Those with a 1 in cps_vismin_9 and a non-one in all other cps21_vismin\_ columns were placed in the White category, and otherwise they were assumed to be non-white.
+
+**Vote choice** - "Liberal Party", "Conservative Party", "NDP", "Other"
+
+Note: This variable was only represented in the survey data.
+
+```{r, include = FALSE}
+#SURVEY DATA
+# We can load it in:
+survey_data <- read_csv("ces2021.csv")
+
+#remove unwanted columns from data & change labels
+#note we are keeping all the ethnicity columuns in order to later separate white and non white
+survey_data <- survey_data %>% 
+  mutate(age=cps21_yob,
+         gender=cps21_genderid,
+         prov=cps21_province,
+         race=cps21_vismin_9,
+         income=cps21_income_number,
+         vote=cps21_votechoice) %>%
+  select(age, gender, prov, race, income, cps21_vismin_1, cps21_vismin_2, cps21_vismin_3, cps21_vismin_4, cps21_vismin_5, cps21_vismin_6, cps21_vismin_7, cps21_vismin_8, cps21_vismin_10, cps21_vismin_11, cps21_vismin_12, vote)
+
+#replace missing values with median or delete
+#Unanswered questions are represented by -99
+
+#age (replace with median)
+no_missing_age <- survey_data[survey_data$age != -99, ]
+median_age <- median(no_missing_age$age, na.rm = TRUE)
+survey_data$age <- ifelse(survey_data$age == -99 | is.na(survey_data$age),
+                       median_age,
+                       survey_data$age)
+
+#gender is cleaned
+
+#province (replace with median)
+no_missing_prov <- survey_data[survey_data$prov != -99, ]
+median_prov <- median(no_missing_prov$prov, na.rm = TRUE)
+survey_data$prov <- ifelse(survey_data$prov == -99 | is.na(survey_data$prov),
+                       median_prov,
+                       survey_data$prov)
+
+#income (replace with median)
+no_missing_income <- survey_data[survey_data$income != -99, ]
+median_income <- median(no_missing_income$income, na.rm = TRUE)
+survey_data$income <- ifelse(survey_data$income == -99 | is.na(survey_data$income),
+                       median_income,
+                       survey_data$income)
+
+#vote (7 indicates did not vote) (delete)
+survey_data <- survey_data %>%
+  filter(vote!=7 & ! is.na(vote) & vote!=-99)
+
+#race (delete NA)
+survey_data <- survey_data %>%
+  filter(((race == 1) | 
+        (cps21_vismin_1 == 1) | 
+        (cps21_vismin_2 == 1) | 
+        (cps21_vismin_3 == 1) | 
+        (cps21_vismin_4 == 1) | 
+        (cps21_vismin_5 == 1) | 
+        (cps21_vismin_6 == 1) | 
+        (cps21_vismin_7 == 1) | 
+        (cps21_vismin_8 == 1) | 
+        (cps21_vismin_10 == 1)) &
+        (cps21_vismin_12 != 1))
+
+#categorize and label
+#age
+x <- survey_data$age
+survey_data$age <- ifelse(x == 83 | x == 84,
+                       "18-19",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 73 & x <= 82,
+                       "20-29",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 63 & x <= 72,
+                       "30-39",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 53 & x <= 62,
+                       "40-49",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 43 & x <= 52,
+                       "50-59",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 33 & x <= 42,
+                       "60-69",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 23 & x <= 32,
+                       "70-79",
+                       survey_data$age)
+survey_data$age <- ifelse(x >= 1 & x <= 22,
+                       "80+",
+                       survey_data$age)
+
+#gender
+survey_data$gender <- ifelse(survey_data$gender == 1,
+                       "Male",
+                       "Non-Male")
+
+#province
+survey_data$prov <- ifelse(survey_data$prov == 1,
+                       "AB",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 2,
+                       "BC",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 3,
+                       "MB",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 4,
+                       "NB",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 5,
+                       "NL",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 6 | survey_data$prov == 13 | survey_data$prov == 8,
+                       "NT, NU, YT",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 7,
+                       "NS",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 9,
+                       "ON",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 10,
+                       "PE",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 11,
+                       "QC",
+                       survey_data$prov)
+survey_data$prov <- ifelse(survey_data$prov == 12,
+                       "SK",
+                       survey_data$prov)
+
+#race
+survey_data$race <- ifelse(survey_data$race == 1 & survey_data$cps21_vismin_1 != 1 & survey_data$cps21_vismin_2 != 1 & survey_data$cps21_vismin_3 != 1 & survey_data$cps21_vismin_4 != 1 & survey_data$cps21_vismin_5 != 1 & survey_data$cps21_vismin_6 != 1 & survey_data$cps21_vismin_7 != 1 & survey_data$cps21_vismin_8 != 1 & survey_data$cps21_vismin_10 != 1 & survey_data$cps21_vismin_11 != 1 & survey_data$cps21_vismin_12 != 1,
+                       "White", "Non-White")
+
+#income
+x <- survey_data$income
+survey_data$income <- ifelse(x < 10000, "<10",
+                          ifelse(x < 20000, "10-20",
+                          ifelse(x < 40000, "20-40",
+                          ifelse(x < 60000, "40-60",
+                          ifelse(x < 80000, "60-80",
+                          ifelse(x < 100000, "80-100",
+                          ifelse(x < 140000, "100-140",
+                          ifelse(x < 250000, "140-250", "250+"))))))))
+desired_order <- c("<10", "10-20", "20-40", "40-60", "60-80", "80-100", "100-140", "140-250", "250+")
+survey_data$income <- factor(survey_data$income, levels = desired_order)
+
+#vote
+survey_data$vote <- ifelse(survey_data$vote == 1,
+                       "Liberal Party",
+                       survey_data$vote)
+survey_data$vote <- ifelse(survey_data$vote == 2,
+                       "Conservative Party",
+                       survey_data$vote)
+survey_data$vote <- ifelse(survey_data$vote == 3,
+                       "NDP",
+                       survey_data$vote)
+survey_data$vote <- ifelse(survey_data$vote == 4 | survey_data$vote == 5 | survey_data$vote == 6,
+                       "Other",
+                       survey_data$vote)
+
+#remove unnecessary columns
+survey_data <- survey_data %>% 
+  select(age, income, gender, prov, vote, race)
+```
+
+As previously discussed, this report will be focusing on the variables age (age of respondent at time of survey/census completion), income (yearly income of respondent), gender (self identified gender of respondent), race (self identified race of respondent), province (province the respondent inhabited at time of survey/census completion) and vote choice (party the respondent planned to vote for in the 2021 federal election), and I have sorted them into the above categories. Below are some numerical and graphical summaries of these variables from the data.
+
+```{r, include=FALSE}
+
+round(prop.table(table(survey_data$age)), 2)
+round(prop.table(table(survey_data$income)), 2)
+round(prop.table(table(survey_data$prov)), 2)
+round(prop.table(table(survey_data$gender)), 2)
+round(prop.table(table(survey_data$race)), 2)
+round(prop.table(table(survey_data$vote)), 2)
+
+round(prop.table(table(census_data$age)), 2)
+round(prop.table(table(census_data$income)), 2)
+round(prop.table(table(census_data$prov)), 2)
+round(prop.table(table(census_data$gender)), 2)
+round(prop.table(table(census_data$race)), 2)
+
+```
+
+***Percentages***
+
+| Province   |        |        | Income   |        |        | Age      |        |        |
+|------------|--------|--------|----------|--------|--------|----------|--------|--------|
+| Category   | Census | Survey | Category | Census | Survey | Category | Census | Survey |
+| AB         | 11%    | 12%    | \<10     | 2%     | 4%     | 18-19    | 3%     | 1%     |
+| BC         | 14%    | 10%    | 10-20    | 3%     | 4%     | 20-29    | 16%    | 14%    |
+| MB         | 3%     | 4%     | 20-40    | 13%    | 13%    | 30-29    | 17%    | 16%    |
+| NB         | 2%     | 2%     | 40-60    | 13%    | 15%    | 40-49    | 16%    | 15%    |
+| NL         | 1%     | 1%     | 60-80    | 13%    | 19%    | 50-59    | 17%    | 18%    |
+| NS         | 3%     | 3%     | 80-100   | 12%    | 14%    | 60-69    | 16%    | 21%    |
+| NT, NU, YT | 0%     | 0%     | 100-140  | 18%    | 16%    | 70-79    | 10%    | 13%    |
+| ON         | 36%    | 36%    | 140-250  | 20%    | 14%    | 80+      | 5%     | 2%     |
+| PE         | 0%     | 0%     | 250+     | 6%     | 2%     |          |        |        |
+| QC         | 23%    | 29%    |          |        |        |          |        |        |
+| SK         | 3%     | 2%     |          |        |        |          |        |        |
+
+: Table 2a: Province, Income, and Age category percentages
+
+| Race      |        |        | Gender   |        |        | Vote Choice  |        |
+|-----------|--------|--------|----------|--------|--------|--------------|--------|
+| Category  | Census | Survey | Category | Census | Survey | Category     | Survey |
+| White     | 70%    | 79%    | Male     | 49%    | 46%    | Conservative | 29%    |
+| Non-White | 30%    | 21%    | Non-Male | 51%    | 54%    | Liberal      | 32%    |
+|           |        |        |          |        |        | NDP          | 23%    |
+|           |        |        |          |        |        | Other        | 17%    |
+
+: Table 2b: Race, Gender, and Vote Choice category percentages
+
+These tables (2a, 2b) show the percentages of each category in each variable in both our survey sample and in the Canadian population (census). We can see looking at these percentages that the survey sample is actually fairly representative of the population.
+
+```{r, echo = FALSE}
+require(scales)
+ggplot(survey_data, aes(x = income)) +
+      geom_bar(fill = "darkseagreen") +
+      labs(title = "Survey Income Frequency",
+           x = "Income (in thousands of dollars) \n upper bound excluded",
+           y = "Count",
+           caption = "Figure 1a") +
+      scale_y_continuous(labels = comma)+
+  theme_minimal(base_family = "serif", paper = "white") +
+  theme(plot.caption = element_text(hjust=0.5))
+
+ggplot(census_data, aes(x = income)) +
+      geom_bar(fill = "darkseagreen") +
+      labs(title = "Census Income Frequency",
+           x = "Income (in thousands of dollars) \n upper bound excluded",
+           y = "Count",
+           caption = "Figure 1b") +
+      scale_y_continuous(labels = comma) +
+  theme_minimal(base_family = "serif", paper = "white") +
+  theme(plot.caption = element_text(hjust=0.5))
+
+ggplot(survey_data, aes(x = vote)) +
+      geom_bar(fill = "darkseagreen") +
+      labs(title = "Survey Vote Choice Frequency",
+           x = "Party",
+           y = "Count",
+           caption = "Figure 1c") +
+      scale_y_continuous(labels = comma)+
+  theme_minimal(base_family = "serif", paper = "white") +
+  theme(plot.caption = element_text(hjust=0.5))
+
+```
+
+Here I have presented three bar plots (created using R) showing the spread of the survey and census data.
+
+Figure 1 shows the frequencies of each category of income in the survey data. We can see the data is centered around the middle, and the category with the highest frequency is \$60,000-\$80,000. Figure 2 shows the income frequencies for the census data. The spread is not entirely different, however we can see the census data median is closer to the right at \$140,000-\$250,000. This highlights the importance of post-stratification. Income is known to be significantly correlated to voting behavior (Kulachai et al., 2023), and thus it is important that we have the correct population weights for each group in order to properly predict election results.
+
+Figure 3 shows the frequencies of party choice among participants in the CES survey. We can see the Liberal Party is the most popular among the sample, which makes sense as the Liberal candidate Justin Trudeau won the 2021 Canadian federal election.
+
+# 3 Methods
+
+In this section I will detail the models and poststratification techniques used in order to predict the outcome of the 2029 Canadian federal election. Since I am considering a categorical variable (party) as the response, I will be using multiple logistic regression models. Next, I will use poststratification to improve my estimates.
+
+## 3.1 Model Specifics
+
+Logistic regression is a statistical modeling technique used to model the "log odds" of an event occurring (Sperandei, 2014). The "log odds" refers to the natural logarithm of the probability (p) of the event divided by the probability of the event not occurring (1-p), which is shown by the equations below.
+
+I will be using four logistic regression models, which will each be used to estimate the probabilities of a different party (Liberal Party, Conservative Party, NDP, and Other) winning the election. In each model, I will be using age, income, race, gender, and province as the predictor variables. Each model will take the following form:
+
+$$
+\begin{aligned}
+\log\!\left(\frac{p}{1 - p}\right)
+=&\ \beta_0 
+\\[6pt]
+&+ \beta_1 X_{\text{Age 20-29}}
++ \beta_2 X_{\text{Age 30-39}}
++ \beta_3 X_{\text{Age 40-49}}
++ \beta_4 X_{\text{Age 50-59}}
++ \beta_5 X_{\text{Age 60-69}}
+\\[6pt]
+&+ \beta_6 X_{\text{Age 70-79}}
++ \beta_7 X_{\text{Age 80+}}
+\\[6pt]
+&+ \beta_8 X_{\text{Inc 10-20}}
++ \beta_9 X_{\text{Inc 20-40}}
++ \beta_{10} X_{\text{Inc 40-60}}
++ \beta_{11} X_{\text{Inc 60-80}}
++ \beta_{12} X_{\text{Inc 80-100}}
+\\[6pt]
+&+ \beta_{13} X_{\text{Inc 100-140}}
++ \beta_{14} X_{\text{Inc 140-250}}
++ \beta_{15} X_{\text{Inc 250+}}
+\\[6pt]
+&+ \beta_{16} X_{\text{BC}}
++ \beta_{17} X_{\text{MB}}
++ \beta_{18} X_{\text{NB}}
++ \beta_{19} X_{\text{NL}}
++ \beta_{20} X_{\text{NT/NU/YT}}
++ \beta_{21} X_{\text{NS}}
+\\[6pt]
+&+ \beta_{22} X_{\text{ON}}
++ \beta_{23} X_{\text{PE}}
++ \beta_{24} X_{\text{QC}}
++ \beta_{25} X_{\text{SK}}
+\\[6pt]
+&+ \beta_{26} X_{\text{Non-Male}}
++ \beta_{27} X_{\text{White}}
+\end{aligned}
+$$
+
+$log(\frac{p}{1-p})$ represents the log odds of someone voting for this party. $\beta_0$ represents the average log odds of a white, non-male person between the ages of 18-19, with yearly income below \$10,000, who lives in Alberta, voting for this party. $\beta$ 1 through 27 represent the average difference in log odds for someone in the corresponding category (as represented by the labels in the model) vs someone with the baseline characteristic, holding all else constant (e.g. $\beta_1$ represents the average change in log odds of someone between the ages of 20 and 29 vs someone between 18 and 19, holding income, province, gender, and race constant).
+
+This model is appropriate as we are working with binary variables (variables with two possible outcomes) for our responses in each model.
+
+```{r, include=FALSE}
+
+# Creating the Model
+liberal <- glm(vote == "Liberal Party" ~ as.factor(age) + as.factor(prov) + as.factor(race) + as.factor(gender) + as.factor(income), data=survey_data)
+conservative <- glm(vote == "Conservative Party" ~ as.factor(age) + as.factor(prov) + as.factor(race) + as.factor(gender) + as.factor(income), data=survey_data)
+ndp <- glm(vote == "NDP" ~ as.factor(age) + as.factor(prov) + as.factor(race) + as.factor(gender) + as.factor(income), data=survey_data)
+other <- glm(vote == "Other" ~ as.factor(age) + as.factor(prov) + as.factor(race) + as.factor(gender) + as.factor(income), data=survey_data)
+
+# Model Results (to Report in Results section)
+summary(liberal)
+summary(conservative)
+summary(ndp)
+summary(other)
+```
+
+## 3.2 Post-Stratification
+
+Poststratification is a statistical technique used to improve the accuracy of estimates, especially when we think our sample might not be representative of the population we are analyzing.
+
+In this report I have divided up each variable into categories, such as "ages 20-29" or "income less than \$10,000". This then lets us divide the whole population into many subgroups called "strata". One example of a stratum I have created is: non-white males aged 40-49 who make \$100,000-\$139,999 and live in Quebec. Each possible combination of these categories creates a different stratum. Let's say we want to find the proportion of Liberal voters in Canada. For each stratum, we can estimate the probability of a person with those traits voting Liberal, using our model. There are a certain number of people in Canada in each stratum. If we multiply that number with the corresponding probability estimate, we are estimating the number of people in this group who would vote Liberal. We can then add up all the people in each stratum who would vote Liberal and divide it by the total number of people in Canada, and we would find a more accurate estimated proportion of Canadians who would vote for this party. We can do this for each party. This is the process of poststratification. This can be represented by the below equation:
+
+$$ \hat{y}^{PS} = \frac{\sum_j N_j \hat{y}_j}{\sum_j N_j} $$
+
+Where $$\hat{y}^{PS}$$ is the estimated proportion of voters for a given party, $$ N_j $$ is the number of people in each stratum, $$\hat {y}_j$$ is the estimated proportion of voters for a given party in each stratum.
+
+The bins chosen for each variable are listed in the Data section of this report, specificially under *Categories.* The variables included in this model were all chosen primarily because they all appeared in both the census and survey data. Additionally, according to a literature review (Kulachai et al., 2023), age, gender, income, and racial identity can all significantly influence voting behavior. Regional differences also may have an effect.
+
+All analysis for this report was programmed using `R version 4.5.1` (GeeksForGeeks, 2022).
+
+# 4 Results
+
+```{r, include=FALSE}
+
+# Here I will perform the post-stratification calculation
+census_data_counts <- census_data %>% 
+  group_by(age, prov, income, gender, race) %>% 
+  summarise(n=n())
+
+census_data_counts$lib_est <-
+  liberal %>% 
+  predict(newdata = census_data_counts, type="response")
+
+census_data_counts$con_est <-
+  conservative %>% 
+  predict(newdata = census_data_counts, type="response")
+
+census_data_counts$ndp_est <-
+  ndp %>% 
+  predict(newdata = census_data_counts, type="response")
+
+census_data_counts$other_est <-
+  other %>% 
+  predict(newdata = census_data_counts, type="response")
+
+census_data_counts %>% 
+  ungroup() %>% 
+  mutate(lib_prop = lib_est*n) %>%
+  summarise(lib_predict = sum(lib_prop)/sum(n))
+
+census_data_counts %>% 
+  ungroup() %>% 
+  mutate(con_prop = con_est*n) %>%
+  summarise(con_predict = sum(con_prop)/sum(n))
+
+census_data_counts %>% 
+  ungroup() %>% 
+  mutate(ndp_prop = ndp_est*n) %>%
+  summarise(ndp_predict = sum(ndp_prop)/sum(n))
+
+census_data_counts %>% 
+  ungroup() %>% 
+  mutate(other_prop = other_est*n) %>%
+  summarise(other_predict = sum(other_prop)/sum(n))
+census_data_counts
+```
+
+See Table 3 in the Appendix. This table shows the values of the coefficients of our four logistic regression models. Each column is a different model: Liberal Party, Conservative Party, NDP, and Other. The equation without values is shown in section 3.2.
+
+|   | Liberal Party | Conservative Party | NDP | Other |
+|-------------------------|--------|-------------------------|--------|--------|
+| Predicted Percentage of Popular Vote | 32.8825% | 29.45111% | 23.8406% | 14.07658% |
+
+: Table 4: Percentages of popular votes for each party
+
+The above Table 4 contains the percentage of the popular vote that we predict will go to each party. According to our estimates, the Liberal party would win with 32.8825%, and conservative would be a close second with 29.45111%. This makes sense, as the winner of the 2021 Canadian federal election was the Liberal party (Cecco, 2021).
+
+All this being said, in order to truly interpret these results we have to check several assumptions about our survey data (Bobbitt, 2020). We know our reponse variables are binary for every model, so that assumption is satisfied. We can probably assume that each observation is independent as the CES information does not state that the participants had any relationship (Stephenson et al., 2021). However there are certain assumptions about the relationships between the variables that we should check which go beyond the scope of this report.
+
+# 5 Discussion
+
+The purpose of this report was to try to predict the results of the upcoming 2029 Canadian federal election. Using data from the 2021 Canadian Election Study (Stephenson et al., 2021), I built four logistic regression models to predict the proportion of voters that would vote for the Liberal party, Conservative party, NDP, and all other parties combined. I then divided my population into many strata and used the 2021 Canadian Census (Statistics Canada, 2021) data to calculate the number of people in each stratum. I used this information to perform poststratification, and thus got a better estimate of the proportion of Canadians who would vote for each party. According to my estimates, the Liberal party would win the popular vote at 32.8825%. This is to be expected, as the Liberal party won the 2021 federal election (Cecco, 2021).
+
+My analysis had some weaknesses. The most important one I would like to discuss is my choice of categorization for race. There was no clear way to sort this variable; the census and the survey contained different ethnic/racial options. These options were often overlapping, and it was unclear if the questions were asking for race, ethnicity, or nationality. The most clear display of this was concerning those in the Asian diaspora. The survey had choices "Asian", "South Asian", "Arab", "Southeast Asian", and "West Asian". South, Southeast, and West Asia are clearly contained in Asia, leading me to believe "Asian" was written to mean "East Asian", however anyone with an Asian background might have checked this box. Additionally, Arab is an ethnic group comprised of people whose origns trace back to regions in North Africa and West Asia, which feels redundant and unclear. The census on the other hand had the options "South Asian", "Chinese", "Filipino", "Arab", "Southeast Asian", "West Asian", and "Japanese". Again we see similar problems, for example the Philippines are in Southeast Asia, and these options don't clearly line up with the survey choices. To top it all off, the survey enabled respondents to choose more than one option, while the census did not, making things even more complicated. There are also multi-racial people to consider; do we simply lump them all together?
+
+It would be nice to say that the problem lies in the inability of survey and census makers to agree on a clear set of categories, but it is much deeper than that. While certain groups have come together to form a clearer racial identity such as White and Black (each for very different reasons), others are comprised of a vast number of distinct minorities. Canada is a diverse country, but we are also a country built on centering whiteness. I chose to categorize my data by White and Non-White, and I do believe this choice only helped to further this issue. I do not think my choice was the best one or even the correct one, and I would like to read some writings similar to the Kennedy et al. paper on sex and gender (2020) in order to make more informed decisions in my future analyses.
+
+There was also a conflict of sex vs gender. The census only had male and female options, while the survey data had non binary and other as choices. I chose to categorize the data by male and non-male based on readings on the subject (Kennedy et al., 2020). While this is a very male-centered approach, I felt it was better than removing non binary people from the data, or risking imputing their genders incorrectly.
+
+Performing data analysis on human populations forces us to either sort very complicated traits into clear cut boxes, or risk ignoring minority groups. It is important to always keep in mind how we can most ethically resolve these conflicts, as data is often relied upon as the ultimate basis of truth.
+
+\newpage
+
+# 6 Generative AI Statement
+
+I did not use artificial intelligence on this assignment. As for my workflow, I started with first reading through the assignment, and watching the video walking through our instructions. Then I read through some of the information given on the census and survey datasets and how they were collected. Next I explored the datasets and decided on which variables I would be using. I then cleaned them, which was likely the most time consuming part of this assignment, as I spent much time categorizing and labeling the variables so that the two datasets would match up for the purposes of poststratification. Once this was done I was able to complete each part of the report, which I did in order: introduction, data, methods, results, and then the discussion. I tried to collect some resources in order to learn about election forecasting in order to inform my decisions on predictors, as I do not have any sort of political science background.
+
+# 7 Ethics Statement
+
+I put great effort into ensuring the reproducibility of my data cleaning, explaining it in as much detail as I could. I even created a table showing exactly how I mapped each variable from both datasets into the categories I used for post-stratification, and I made sure to note how I dealt with missing values, and what I considered to be a missing value. I also documented the language I used (R), and which version of R it was. I clearly outlined all the steps of how I built my logistic regression model including the many variables and their coefficients, and I went into a fair amount of detail on how my post-stratification was performed. I included equations and results for both statistical techniques.
+
+This research involves living human participants (the citizens of Canada) and it uses secondary personal information, which means it would need Research Ethics Board approval to be made public. While the CES data we used is publically available, the census data is not. The summary statistics contained in this report would not make those involved identifiable, however everyone involved in the census data has the right to informed consent concerning what is being done with their information, and they have a reasonable expectation to privacy as we are analyzing very personal information. Thus it does not qualify for an exemption.
+
+# 8 Bibliography
+
+Bobbitt, Z. (2020, October 13). *The 6 assumptions of logistic regression (with examples)*. Statology. https://www.statology.org/assumptions-of-logistic-regression/
+
+Cecco, L. (2021, September 21). *Canada election result: Trudeau wins third term after early vote gamble*. The Guardian. https://www.theguardian.com/world/2021/sep/21/canada-election-result-trudeau-forecast-to-win-third-term-after-early-vote-gamble
+
+GeeksforGeeks. (2022, June 25). *Data Cleaning in R*. \newline GeeksforGeeks.https://www.geeksforgeeks.org/r-language/data-cleaning-in-r/
+
+Jones, R. P. (2021, April 4). *StatsCan says it’s ready to conduct census despite pandemic’s resurgence*. CBC. https://www.cbc.ca/news/politics/statcan-ready-census-2021-1.5973425
+
+Kennedy, L., Khanna, K., Simpson, D., & Gelman, A. (2020). *Using sex and gender in survey adjustment*.
+
+Kulachai, W., Lerdtomornsakul, U., & Homyamyen, P. (2023). Factors Influencing Voting Decision: a Comprehensive Literature Review. *Social Sciences*, *12*(9), 1–16. MDPI. https://doi.org/10.3390/socsci12090469
+
+Sperandei, S. (2014). Understanding Logistic Regression Analysis. *Biochemia Medica*, *24*(1), 12–18. https://doi.org/10.11613/bm.2014.003
+
+Statistics Canada. (2021). *Canadian Census*.
+
+Stephenson, L. B., Harell, A., Rubenson, D., & Loewen, P. J. (2021). *The 2021 Canadian Election Study. \[dataset\]*.
+
+# 9 Appendix
+
+| Age |   |   | Income |   |   |
+|------------|------------|------------|------------|------------|------------|
+| New Label | Census Value(s) | Survey Value(s) | New Label | Census Value(s) | Survey Value(s) |
+| "18-19" | 7 | 83, 84 | "\<10" | 1-4 | 0-9999 |
+| "20-29" | 8, 9 | 73-82 | "10-20" | 5-8 | 10000-19999 |
+| "30-39" | 10, 11 | 63-72 | "20-40" | 9-12 | 20000-39999 |
+| "40-49" | 12, 13 | 53-62 | "40-60" | 13-16 | 40000-59999 |
+| "50-59" | 14, 15 | 43-52 | "60-80" | 17-20 | 60000-79999 |
+| "60-69" | 16, 17 | 33-42 | "80-100" | 21- 24 | 80000-99999 |
+| "70-79" | 18, 19 | 23-32 | "100-140" | 25-28 | 100000-139999 |
+| "80+" | 20, 21 | 1-22 | "140-250" | 29- 32 | 140000-249999 |
+|  |  |  | "250+" | 33 | Otherwise |
+
+: Table 1a: Age and Income mapping
+
+| Province |   |   | Gender |   |   |
+|------------|------------|------------|------------|------------|------------|
+| New Label | Census Value(s) | Survey Value(s) | New Label | Census Value(s) | Survey Value(s) |
+| "AB" | 48 | 1 | "Male" | 2 | 1 |
+| "BC" | 59 | 2 | "Non-Male" | 1 | Otherwise |
+| "MB" | 46 | 3 |  |  |  |
+| "NB" | 13 | 4 |  |  |  |
+| "NL" | 10 | 5 |  |  |  |
+| "NT, NU, YT" | 70 | 6, 8, 13 |  |  |  |
+| "NS" | 12 | 7 |  |  |  |
+| "ON" | 35 | 9 |  |  |  |
+| "PE" | 11 | 10 |  |  |  |
+| "QC" | 24 | 11 |  |  |  |
+| "SK" | 47 | 12 |  |  |  |
+
+: Table 1b: Province and Gender mapping
+
+| Race |   |   | Vote Choice |   |
+|-------------|------------|---------------|-----------------|----------------|
+| New Label | Census Value(s) | Survey Value(s) | New Label | Survey Value(s) |
+| "White" | 1 | See *Survey Data Cleaning* | Liberal Party | 1 |
+| "Non-White" | Otherwise |  | Conservative Party | 2 |
+|  |  |  | NDP | 3 |
+|  |  |  | Other | Otherwise |
+
+: Table 1c: Race and Vote Choice mapping
+
+| Label | Liberal Party | Conservative Party | NDP | Other |
+|------------|------------|-------------------------|------------|------------|
+| Intercept | 0.05475 | 0.486168 | 0.404773 | 0.054297 |
+| Age 20-29 | 0.9335 | -0.107308 | -0.028908 | 0.042862 |
+| Age 30-39 | 0.16721 | -0.082759 | -0.135353 | 0.0509 |
+| Age 40-49 | 0.19409 | -0.001486 | -0.226503 | 0.33895 |
+| Age 50-59 | 0.23335 | 0.025960 | -0.291411 | 0.032102 |
+| Age 60-69 | 0.26565 | -0.003449 | -0.310632 | 0.48429 |
+| Age 70-79 | 0.2291 | 0.019556 | -0.322324 | 0.073671 |
+| Age 80+ | 0.29834 | 0.066573 | -0.343882 | -0.021032 |
+| BC | 0.0302 | -0.166204 | 0.108037 | 0.027965 |
+| MB | 0.04834 | -0.165564 | 0.048223 | 0.068996 |
+| NB | 0.19896 | -0.230678 | -0.031495 | 0.063215 |
+| NL | 0.13618 | -0.244764 | 0.142399 | -0.033814 |
+| NS | 0.10838 | -0.183212 | 0.025944 | -0.034569 |
+| NT/NU/YT | 0.21584 | -0.254631 | 0.023776 | 0.015013 |
+| ON | 0.13264 | -0.129567 | -0.009631 | 0.006556 |
+| PE | 0.10838 | -0.065539 | -0.14349 | 0.10065 |
+| QC | 0.05233 | -0.298519 | -0.105514 | 0.344971 |
+| SK | -0.05233 | 0.05004 | -0.017101 | 0.019392 |
+| White | 0.01634 | 0.57525 | 0.027701 | 0.018148 |
+| Non Male | 0.01178 | -0.077896 | 0.082474 | -0.020922 |
+| Income \$10,000-\$19,999 | 0.01178 | -0.080987 | 0.055997 | 0.013214 |
+| Income \$20,000-\$39,999 | 0.02943 | -0.067158 | 0.068514 | -0.030782 |
+| Income \$40,000-\$59,999 | 0.02538 | 0.001089 | 0.019601 | -0.04607 |
+| Income \$60,000-\$79,999 | 0.06213 | -0.022649 | 0.009404 | -0.048887 |
+| Income \$80,000-\$99,999 | 0.06784 | -0.009814 | -0.010659 | -0.047364 |
+| Income \$100,000-\$139,999 | 0.07529 | 0.018579 | -0.033205 | -0.060666 |
+| Income \$140,000-\$249,999 | 0.10616 | -0.016512 | -0.041556 | -0.04809 |
+| Income \$250,000+ | 0.04316 | 0.098844 | -0.075631 | -0.066376 |
+
+: Table 3: Coefficient values for models
